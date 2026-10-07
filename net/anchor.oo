@@ -1,0 +1,10 @@
+// # TCP Network Domain Anchor
+//
+// Logline: Re-exports client TCP transport primitives.
+//
+// Setup: Imports client transport definitions.
+//
+// Beats:
+//   1. Re-export tcp_client module.
+
+import "net/tcp_client.oo";

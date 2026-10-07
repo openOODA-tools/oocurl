@@ -11,7 +11,7 @@
 //   4. Close TCP socket and return parsed HttpResponse model.
 
 import "std/net/http_cap.oo";
-import "std/net/tcp_conn.oo";
+import "net/tcp_client.oo";
 import "url/url_parse.oo";
 import "http_response.oo";
 

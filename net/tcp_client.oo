@@ -1,0 +1,66 @@
+// # TCP Client Network Transport
+//
+// Logline: Manages client TCP socket connection, transmission, and reception under TcpCap.
+//
+// Setup: Requires explicit &TcpCap token. Zero ambient authority.
+//
+// Beats:
+//   1. Establish outbound TCP stream connection to remote host and port.
+//   2. Transmit request payload bytes over active socket.
+//   3. Receive response stream chunks into memory.
+//   4. Close active socket and release resources.
+
+pub type TcpConnection = struct {
+    slot: Int,
+    host: String,
+    port: Int,
+    is_connected: Bool,
+    bytes_sent: Int,
+    bytes_recv: Int
+};
+
+pub fn tcp_conn_open(tcp: &TcpCap, host: String, port: Int) -> Result[TcpConnection, String] {
+    if chars_len(host) == 0 { return Err("TCP_ERR: empty host"); }
+    if port <= 0 || port > 65535 { return Err("TCP_ERR: invalid port"); }
+    let res: Result[String, String] = tcp_connect(tcp, host, port);
+    if res.is_err() {
+        let e: String = match res { Ok(s) => s, Err(msg) => msg };
+        return Err("TCP_CONNECT_ERR: " + e);
+    }
+    return Ok(TcpConnection {
+        slot: 1, host: host, port: port,
+        is_connected: true, bytes_sent: 0, bytes_recv: 0
+    });
+}
+
+pub fn tcp_conn_write(tcp: &TcpCap, conn: TcpConnection, data: String) -> Result[TcpConnection, String] {
+    if !conn.is_connected { return Err("TCP_WRITE_ERR: not connected"); }
+    let n: Int = chars_len(data);
+    if n == 0 { return Ok(conn); }
+    let s: Int = conn.slot;
+    let res: Result[String, String] = tcp_write(tcp, s, data);
+    if res.is_err() {
+        let e: String = match res { Ok(str) => str, Err(msg) => msg };
+        return Err("TCP_WRITE_ERR: " + e);
+    }
+    return Ok(TcpConnection {
+        slot: conn.slot, host: conn.host, port: conn.port,
+        is_connected: true, bytes_sent: conn.bytes_sent + n, bytes_recv: conn.bytes_recv
+    });
+}
+
+pub fn tcp_conn_read(tcp: &TcpCap, conn: TcpConnection, max_bytes: Int) -> Result[String, String] {
+    if !conn.is_connected { return Err("TCP_READ_ERR: not connected"); }
+    let s: Int = conn.slot;
+    return tcp_read(tcp, s, max_bytes);
+}
+
+pub fn tcp_conn_close(tcp: &TcpCap, conn: TcpConnection) -> Result[TcpConnection, String] {
+    if !conn.is_connected { return Ok(conn); }
+    let s: Int = conn.slot;
+    let _res: Result[String, String] = tcp_close(tcp, s);
+    return Ok(TcpConnection {
+        slot: 0, host: conn.host, port: conn.port,
+        is_connected: false, bytes_sent: conn.bytes_sent, bytes_recv: conn.bytes_recv
+    });
+}
