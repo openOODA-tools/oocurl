@@ -89,12 +89,16 @@ pub fn parse_curl_args(args: List[String]) -> CurlOpts {
         } else if str_starts_with(arg, "-X=") || str_starts_with(arg, "--request=") {
             let eq: Int = str_index_of(arg, "=");
             opts.method = str_to_upper(str_slice(arg, eq + 1, chars_len(arg)));
+        } else if str_starts_with(arg, "-X") && chars_len(arg) > 2 && !str_starts_with(arg, "-X=") {
+            opts.method = str_to_upper(str_slice(arg, 2, chars_len(arg)));
         } else if arg == "-H" || arg == "--header" {
             i = i + 1;
             if i < n { opts.headers = list_push(opts.headers, list_get(args, i)); }
         } else if str_starts_with(arg, "-H=") || str_starts_with(arg, "--header=") {
             let eq: Int = str_index_of(arg, "=");
             opts.headers = list_push(opts.headers, str_slice(arg, eq + 1, chars_len(arg)));
+        } else if str_starts_with(arg, "-H") && chars_len(arg) > 2 && !str_starts_with(arg, "-H=") {
+            opts.headers = list_push(opts.headers, str_slice(arg, 2, chars_len(arg)));
         } else if arg == "-d" || arg == "--data" {
             i = i + 1;
             if i < n {
@@ -105,12 +109,17 @@ pub fn parse_curl_args(args: List[String]) -> CurlOpts {
             let eq: Int = str_index_of(arg, "=");
             opts.data = str_slice(arg, eq + 1, chars_len(arg));
             if opts.method == "GET" { opts.method = "POST"; }
+        } else if str_starts_with(arg, "-d") && chars_len(arg) > 2 && !str_starts_with(arg, "-d=") {
+            opts.data = str_slice(arg, 2, chars_len(arg));
+            if opts.method == "GET" { opts.method = "POST"; }
         } else if arg == "-o" || arg == "--output" {
             i = i + 1;
             if i < n { opts.output_file = list_get(args, i); }
         } else if str_starts_with(arg, "-o=") || str_starts_with(arg, "--output=") {
             let eq: Int = str_index_of(arg, "=");
             opts.output_file = str_slice(arg, eq + 1, chars_len(arg));
+        } else if str_starts_with(arg, "-o") && chars_len(arg) > 2 && !str_starts_with(arg, "-o=") {
+            opts.output_file = str_slice(arg, 2, chars_len(arg));
         } else if !str_starts_with(arg, "-") {
             opts.url = arg;
         }

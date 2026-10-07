@@ -26,8 +26,7 @@ pub fn build_tool_result(id: String, text: String) -> String {
 }
 
 pub fn tools_list_payload(id: String) -> String {
-    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":["
-        + "{\"name\":\"parse_url\",\"description\":\"Parse URL into components\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}},"
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[" + "{\"name\":\"parse_url\",\"description\":\"Parse URL into components\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}},"
         + "{\"name\":\"http_request\",\"description\":\"Execute HTTP request\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"method\":{\"type\":\"string\"},\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"body\":{\"type\":\"string\"},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"url\"]}},"
         + "{\"name\":\"http_head\",\"description\":\"HTTP HEAD inspection\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"url\"]}},"
         + "{\"name\":\"encode_url_query\",\"description\":\"Encode URL query string\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\"},\"pairs\":{\"type\":\"array\"}}}}"
@@ -119,11 +118,22 @@ pub fn parse_pairs_array(json: String) -> List[String] {
             let obj_end: Int = scan_json_object_end(json, i);
             if obj_end > i {
                 let obj_str: String = str_slice(json, i, obj_end);
-                let k: String = json_field_string(obj_str, "key");
+                let mut k: String = json_field_string(obj_str, "key");
+                if chars_len(k) == 0 { k = json_field_string(obj_str, "name"); }
                 let mut v: String = json_field_string(obj_str, "value");
                 if chars_len(v) == 0 { v = json_field_raw(obj_str, "value"); }
                 if chars_len(k) > 0 { pairs = list_push(pairs, k + "\t" + v); }
                 i = obj_end;
+            } else { i = i + 1; }
+        } else if char_at(json, i) == "[" {
+            let arr_end: Int = scan_balanced(json, i);
+            if arr_end > i {
+                let arr_str: String = str_slice(json, i, arr_end);
+                let items: List[String] = parse_string_array(arr_str);
+                if list_len(items) >= 2 {
+                    pairs = list_push(pairs, list_get(items, 0) + "\t" + list_get(items, 1));
+                }
+                i = arr_end;
             } else { i = i + 1; }
         } else { i = i + 1; }
     }
@@ -156,7 +166,7 @@ pub fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
             return build_error(id, -32602, "missing required argument: url");
         }
         let p: ParsedUrl = parse_url(json_field_string(args, "url"));
-        let out: String = "{\"scheme\":\"" + p.scheme + "\",\"userinfo\":\"" + p.userinfo + "\",\"host\":\"" + p.host + "\",\"port\":" + to_string(p.port) + ",\"path\":\"" + p.path + "\",\"query\":\"" + p.query + "\",\"fragment\":\"" + p.fragment + "\",\"is_valid\":" + (if p.is_valid { "true" } else { "false" }) + "}";
+        let out: String = "{\"scheme\":\"" + json_escape(p.scheme) + "\",\"userinfo\":\"" + json_escape(p.userinfo) + "\",\"host\":\"" + json_escape(p.host) + "\",\"port\":" + to_string(p.port) + ",\"path\":\"" + json_escape(p.path) + "\",\"query\":\"" + json_escape(p.query) + "\",\"fragment\":\"" + json_escape(p.fragment) + "\",\"is_valid\":" + (if p.is_valid { "true" } else { "false" }) + "}";
         return build_tool_result(id, out);
     }
 
@@ -186,7 +196,7 @@ pub fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
             return build_error(id, -32000, "http request failed: " + err_msg);
         }
         let resp: HttpResponse = match res { Ok(r) => r, Err(_) => http_response_default() };
-        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + resp.status_text + "\",\"headers\":" + render_headers_json(resp.headers) + ",\"body\":\"" + json_escape(resp.body) + "\"}";
+        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + json_escape(resp.status_text) + "\",\"headers\":" + render_headers_json(resp.headers) + ",\"body\":\"" + json_escape(resp.body) + "\"}";
         return build_tool_result(id, out);
     }
 
@@ -210,7 +220,7 @@ pub fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
             return build_error(id, -32000, "http head failed: " + err_msg);
         }
         let resp: HttpResponse = match res { Ok(r) => r, Err(_) => http_response_default() };
-        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + resp.status_text + "\",\"headers\":" + render_headers_json(resp.headers) + "}";
+        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + json_escape(resp.status_text) + "\",\"headers\":" + render_headers_json(resp.headers) + "}";
         return build_tool_result(id, out);
     }
 
@@ -222,8 +232,6 @@ pub fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
             pairs = parse_pairs_array(raw_pairs);
         } else if chars_len(raw_params) > 0 && str_starts_with(str_trim(raw_params), "{") {
             pairs = parse_object_pairs(raw_params);
-        } else if chars_len(raw_params) > 0 && str_trim(raw_params) == "{}" {
-            // empty params
         } else if chars_len(args) > 0 && str_starts_with(str_trim(args), "{") && chars_len(raw_params) == 0 && chars_len(raw_pairs) == 0 {
             let test_pairs: List[String] = parse_object_pairs(args);
             if list_len(test_pairs) > 0 {

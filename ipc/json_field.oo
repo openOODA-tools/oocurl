@@ -155,7 +155,7 @@ pub fn json_field_string(json: String, key: String) -> String {
     if start < 0 || start >= n { return ""; }
     if char_at(json, start) != "\"" { return ""; }
     let end: Int = skip_string(json, start);
-    return str_slice(json, start + 1, end - 1);
+    return json_unescape(str_slice(json, start + 1, end - 1));
 }
 
 pub fn json_escape(s: String) -> String {
