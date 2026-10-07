@@ -1,0 +1,104 @@
+// # URL Parser and Endpoint Sanitizer
+//
+// Logline: Decodes HTTP/HTTPS URL strings into structured network endpoints.
+//
+// Setup: Pure string analyzer. Enforces scheme and port sanity checks.
+//
+// Beats:
+//   1. Define ParsedUrl record holding scheme, host, port, path, and validity flag.
+//   2. Strip and classify network protocol scheme (http vs https).
+//   3. Extract hostname, custom port overrides, and request path.
+//   4. Construct validated ParsedUrl model.
+
+pub type ParsedUrl = struct {
+    scheme: String,
+    host: String,
+    port: Int,
+    path: String,
+    is_valid: Bool
+};
+
+pub fn parsed_url_default() -> ParsedUrl {
+    return ParsedUrl {
+        scheme: "http",
+        host: "",
+        port: 80,
+        path: "/",
+        is_valid: false
+    };
+}
+
+pub fn parse_port_number(s: String) -> Int {
+    let trimmed: String = str_trim(s);
+    let n: Int = chars_len(trimmed);
+    let mut val: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let b: Int = byte_at(trimmed, i);
+        if b >= 48 && b <= 57 {
+            val = (val * 10) + (b - 48);
+        } else {
+            return val;
+        }
+        i = i + 1;
+    }
+    return val;
+}
+
+pub fn parse_url(raw_url: String) -> ParsedUrl {
+    let trimmed: String = str_trim(raw_url);
+    if chars_len(trimmed) == 0 {
+        return parsed_url_default();
+    }
+
+    let mut scheme: String = "http";
+    let mut rest: String = "";
+
+    if str_starts_with(trimmed, "http://") {
+        scheme = "http";
+        rest = str_slice(trimmed, 7, chars_len(trimmed));
+    } else if str_starts_with(trimmed, "https://") {
+        scheme = "https";
+        rest = str_slice(trimmed, 8, chars_len(trimmed));
+    } else {
+        rest = trimmed;
+    }
+
+    let slash_pos: Int = str_index_of(rest, "/");
+    let mut authority: String = "";
+    let mut path: String = "/";
+
+    if slash_pos >= 0 {
+        authority = str_slice(rest, 0, slash_pos);
+        path = str_slice(rest, slash_pos, chars_len(rest));
+    } else {
+        authority = rest;
+    }
+
+    let mut host: String = "";
+    let mut port: Int = if scheme == "https" { 443 } else { 80 };
+
+    let colon_pos: Int = str_index_of(authority, ":");
+    if colon_pos >= 0 {
+        host = str_slice(authority, 0, colon_pos);
+        let port_str: String = str_slice(authority, colon_pos + 1, chars_len(authority));
+        let p_num: Int = parse_port_number(port_str);
+        if p_num > 0 {
+            port = p_num;
+        }
+    } else {
+        host = authority;
+    }
+
+    if chars_len(host) == 0 {
+        return parsed_url_default();
+    }
+
+    return ParsedUrl {
+        scheme: scheme,
+        host: host,
+        port: port,
+        path: path,
+        is_valid: true
+    };
+}

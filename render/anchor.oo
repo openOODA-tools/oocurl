@@ -1,0 +1,16 @@
+// # Render Subsystem Anchor
+//
+// Logline: Public export barrel for HTTP status formatting, headers styling, and theme resolution.
+//
+// Setup: Bridges theme resolution and ANSI terminal colorizers.
+//
+// Beats:
+//   1. Re-export resolve_curl_theme.
+//   2. Re-export render_http_response and status colorizers.
+//   3. Expose subsystem anchor metadata.
+
+import "render_theme.oo";
+
+pub fn render_anchor_version() -> String {
+    return "0.1.0";
+}

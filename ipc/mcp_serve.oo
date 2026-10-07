@@ -1,0 +1,123 @@
+// # MCP Stdio Server - HTTP API Request and Inspection Engine
+//
+// Logline: Speaks Model Context Protocol over stdio for LLM HTTP and API client requests.
+//
+// Setup: Requires TcpCap and FsReadCap. Zero ambient authority.
+//
+// Beats:
+//   1. Handle initialize and notifications/initialized lifecycle handshakes.
+//   2. Advertise http_request and parse_url tools with input schemas.
+//   3. Dispatch tools/call requests executing capability-bounded network fetch.
+
+import "url/url_parse.oo";
+import "http/http_response.oo";
+import "http/http_client.oo";
+import "ipc/json_field.oo";
+
+fn build_error(id: String, code: Int, msg: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}";
+}
+
+fn build_tool_result(id: String, text: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}";
+}
+
+fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
+    let params: String = json_field_raw(req, "params");
+    let tool_name: String = json_field_string(params, "name");
+    let args: String = json_field_raw(params, "arguments");
+
+    if tool_name == "parse_url" {
+        let u: String = json_field_string(args, "url");
+        let p: ParsedUrl = parse_url(u);
+        let out: String = "{\"scheme\":\"" + p.scheme + "\",\"host\":\"" + p.host + "\",\"port\":" + to_string(p.port) + ",\"path\":\"" + p.path + "\",\"is_valid\":" + (if p.is_valid { "true" } else { "false" }) + "}";
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "http_request" {
+        let u: String = json_field_string(args, "url");
+        let parsed: ParsedUrl = parse_url(u);
+        if !parsed.is_valid {
+            return build_error(id, -32602, "invalid url: " + u);
+        }
+        let mut method: String = json_field_string(args, "method");
+        if chars_len(method) == 0 {
+            method = "GET";
+        }
+        let body: String = json_field_string(args, "body");
+        let res: Result[HttpResponse, String] = execute_http_request(
+            tcp,
+            parsed,
+            method,
+            list_new(),
+            body
+        );
+        if res.is_err() {
+            let err_msg: String = match res { Ok(_) => "", Err(e) => e };
+            return build_error(id, -32000, "http request failed: " + err_msg);
+        }
+        let resp: HttpResponse = match res {
+            Ok(r) => r,
+            Err(_) => http_response_default()
+        };
+        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + resp.status_text + "\",\"body\":\"" + json_escape(resp.body) + "\"}";
+        return build_tool_result(id, out);
+    }
+
+    return build_error(id, -32601, "unknown tool: " + tool_name);
+}
+
+fn handle_mcp_request(tcp: &TcpCap, req: String) -> String {
+    let method: String = json_field_string(req, "method");
+    let raw_id: String = json_field_raw(req, "id");
+    let id: String = if chars_len(raw_id) == 0 { "null" } else { raw_id };
+
+    if method == "initialize" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocurl\",\"version\":\"0.1.0\"}}}";
+    }
+    if method == "notifications/initialized" {
+        return "";
+    }
+    if method == "tools/list" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[{\"name\":\"http_request\",\"description\":\"Execute HTTP request under TcpCap\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"method\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}},\"required\":[\"url\"]}},{\"name\":\"parse_url\",\"description\":\"Parse and validate URL into endpoint components\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}}]}}";
+    }
+    if method == "tools/call" {
+        return handle_tool_call(tcp, id, req);
+    }
+    if method == "shutdown" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}";
+    }
+    return build_error(id, -32601, "method not found: " + method);
+}
+
+pub fn run_mcp_server(tcp: &TcpCap, fs: &FsReadCap) -> Int {
+    let mut buf: String = "";
+    let mut running: Bool = true;
+    while running {
+        let mut nl: Int = str_index_of(buf, "\n");
+        while nl >= 0 {
+            let line: String = str_trim(str_slice(buf, 0, nl));
+            buf = str_slice(buf, nl + 1, chars_len(buf));
+            if chars_len(line) > 0 {
+                let resp: String = handle_mcp_request(tcp, line);
+                if chars_len(resp) > 0 {
+                    println(resp);
+                }
+            }
+            nl = str_index_of(buf, "\n");
+        }
+
+        let cr: Result[String, String] = oo_read_stdin_chunk(fs, 100);
+        if !cr.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match cr { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                buf = buf + chunk;
+            }
+        }
+    }
+    return 0;
+}

@@ -1,0 +1,19 @@
+// # IPC Subsystem Anchor - CLI Options and MCP Engine
+//
+// Logline: Public export barrel for oocurl CLI options and Model Context Protocol stdio service.
+//
+// Setup: Bridges argument parsing, JSON field extraction, and MCP tool handlers.
+//
+// Beats:
+//   1. Re-export CurlOpts parser and defaults.
+//   2. Re-export JSON field extraction helpers.
+//   3. Re-export MCP stdio server.
+//   4. Expose subsystem anchor metadata.
+
+import "curl_opts.oo";
+import "json_field.oo";
+import "mcp_serve.oo";
+
+pub fn ipc_anchor_version() -> String {
+    return "0.1.0";
+}

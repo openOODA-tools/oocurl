@@ -1,0 +1,99 @@
+// # oocurl Entry Point - Capability-Bounded HTTP Client
+//
+// Logline: Argument gate, URL validator, and HTTP request dispatcher under explicit TcpCap.
+//
+// Setup: Requires TcpCap, FsReadCap, FsWriteCap, and EnvCap. Zero ambient authority.
+//
+// Beats:
+//   1. Handle --help, --version, and --mcp early without side effects.
+//   2. Parse and validate target URL endpoint.
+//   3. Execute HTTP transaction across TCP socket under TcpCap.
+//   4. Format and render response payload or write output file under FsWriteCap.
+
+import "url/anchor.oo";
+import "http/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";
+
+fn render_help() -> String {
+    return "Usage: oocurl [OPTIONS] <URL>\n\n" +
+        "Capability-bounded HTTP/API client with syntax-highlighted response payloads.\n\n" +
+        "Options:\n" +
+        "  -X, --request <METHOD> HTTP method (GET, POST, PUT, DELETE, HEAD, PATCH)\n" +
+        "  -H, --header <HEADER>  Add custom request header (can be used multiple times)\n" +
+        "  -d, --data <DATA>      HTTP request body data (defaults to POST)\n" +
+        "  -i, --include          Include HTTP response status and headers in output\n" +
+        "  -s, --silent           Silent mode (suppress error diagnostics on stderr)\n" +
+        "  -o, --output <FILE>    Write response body to file instead of stdout\n" +
+        "      --mcp              Start Model Context Protocol stdio server\n" +
+        "  -h, --help             Display this help message and exit\n" +
+        "  -v, --version          Print version information and exit\n";
+}
+
+pub fn main(
+    tcp: &TcpCap,
+    fs: &FsReadCap,
+    fs_write: &FsWriteCap,
+    env: &EnvCap,
+    args: List[String]
+) -> Result[Int, String] {
+    let opts: CurlOpts = parse_curl_args(args);
+
+    if opts.help_mode {
+        print(render_help());
+        return Ok(0);
+    }
+    if opts.version_mode {
+        println("oocurl 0.1.0 (openOODA sovereign HTTP client)");
+        return Ok(0);
+    }
+    if opts.mcp_mode {
+        run_mcp_server(tcp, fs);
+        return Ok(0);
+    }
+
+    if chars_len(opts.url) == 0 {
+        println("oocurl: no URL specified\nTry 'oocurl --help' for more information.");
+        return Ok(2);
+    }
+
+    let parsed: ParsedUrl = parse_url(opts.url);
+    if !parsed.is_valid {
+        println("oocurl: could not parse URL: " + opts.url);
+        return Ok(3);
+    }
+
+    let res: Result[HttpResponse, String] = execute_http_request(
+        tcp,
+        parsed,
+        opts.method,
+        opts.headers,
+        opts.data
+    );
+
+    if res.is_err() {
+        if !opts.silent {
+            let err_msg: String = match res { Ok(_) => "", Err(e) => e };
+            println("oocurl: (" + err_msg + ") failed to fetch " + opts.url);
+        }
+        return Ok(7);
+    }
+
+    let resp: HttpResponse = match res {
+        Ok(r) => r,
+        Err(_) => http_response_default()
+    };
+
+    if opts.output_file != "" {
+        let wr: Result[Void, String] = write_file(fs_write, opts.output_file, resp.body);
+        if wr.is_err() {
+            println("oocurl: failed to write output file: " + opts.output_file);
+            return Ok(23);
+        }
+        return Ok(0);
+    }
+
+    let rendered: String = render_http_response(resp, opts.include_headers);
+    println(rendered);
+    return Ok(0);
+}

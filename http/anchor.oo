@@ -1,0 +1,17 @@
+// # HTTP Subsystem Anchor
+//
+// Logline: Public export barrel for HTTP client request dispatch and response decoding.
+//
+// Setup: Bridges HTTP wire builders, socket streams, and response parsers.
+//
+// Beats:
+//   1. Re-export HttpResponse record and status decoder.
+//   2. Re-export execute_http_request client handler.
+//   3. Expose subsystem anchor version.
+
+import "http_response.oo";
+import "http_client.oo";
+
+pub fn http_anchor_version() -> String {
+    return "0.1.0";
+}

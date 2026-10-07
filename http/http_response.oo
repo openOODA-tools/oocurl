@@ -1,0 +1,128 @@
+// # HTTP Response Model and Wire Decoder
+//
+// Logline: Decodes raw HTTP response byte streams into structured status, headers, and body.
+//
+// Setup: Pure wire parser. Zero ambient authority.
+//
+// Beats:
+//   1. Define HttpResponse model holding status code, status text, headers, and body.
+//   2. Separate HTTP header section from response body payload.
+//   3. Parse HTTP/1.x status line extracting numeric status and reason phrase.
+//   4. Extract headers into normalized key-value string entries.
+
+pub type HttpResponse = struct {
+    status_code: Int,
+    status_text: String,
+    headers: List[String],
+    body: String
+};
+
+pub fn http_response_default() -> HttpResponse {
+    return HttpResponse {
+        status_code: 0,
+        status_text: "",
+        headers: list_new(),
+        body: ""
+    };
+}
+
+pub fn parse_status_code(code_str: String) -> Int {
+    let trimmed: String = str_trim(code_str);
+    let n: Int = chars_len(trimmed);
+    let mut val: Int = 0;
+    let mut i: Int = 0;
+    while i < n {
+        let b: Int = byte_at(trimmed, i);
+        if b >= 48 && b <= 57 {
+            val = (val * 10) + (b - 48);
+        } else {
+            return val;
+        }
+        i = i + 1;
+    }
+    return val;
+}
+
+pub fn parse_http_response(raw_resp: String) -> HttpResponse {
+    if chars_len(raw_resp) == 0 {
+        return http_response_default();
+    }
+
+    let mut sep_pos: Int = str_index_of(raw_resp, "\r\n\r\n");
+    let mut sep_len: Int = 4;
+    if sep_pos < 0 {
+        sep_pos = str_index_of(raw_resp, "\n\n");
+        sep_len = 2;
+    }
+
+    let mut header_section: String = "";
+    let mut body_section: String = "";
+
+    if sep_pos >= 0 {
+        header_section = str_slice(raw_resp, 0, sep_pos);
+        body_section = str_slice(raw_resp, sep_pos + sep_len, chars_len(raw_resp));
+    } else {
+        header_section = raw_resp;
+    }
+
+    let mut lines: List[String] = list_new();
+    let n_hdr: Int = chars_len(header_section);
+    let mut cur: String = "";
+    let mut i: Int = 0;
+    while i < n_hdr {
+        let c: String = char_at(header_section, i);
+        if c == "\n" {
+            let trimmed_line: String = str_trim(cur);
+            if chars_len(trimmed_line) > 0 {
+                lines = list_push(lines, trimmed_line);
+            }
+            cur = "";
+        } else if c != "\r" {
+            cur = cur + c;
+        }
+        i = i + 1;
+    }
+    if chars_len(str_trim(cur)) > 0 {
+        lines = list_push(lines, str_trim(cur));
+    }
+
+    let n_lines: Int = list_len(lines);
+    if n_lines == 0 {
+        return HttpResponse {
+            status_code: 200,
+            status_text: "OK",
+            headers: list_new(),
+            body: raw_resp
+        };
+    }
+
+    let status_line: String = list_get(lines, 0);
+    let mut code_val: Int = 200;
+    let mut code_text: String = "OK";
+
+    let sp1: Int = str_index_of(status_line, " ");
+    if sp1 >= 0 {
+        let after_sp1: String = str_slice(status_line, sp1 + 1, chars_len(status_line));
+        let sp2: Int = str_index_of(after_sp1, " ");
+        if sp2 >= 0 {
+            code_val = parse_status_code(str_slice(after_sp1, 0, sp2));
+            code_text = str_slice(after_sp1, sp2 + 1, chars_len(after_sp1));
+        } else {
+            code_val = parse_status_code(after_sp1);
+        }
+    }
+
+    let mut headers_out: List[String] = list_new();
+    let mut h_idx: Int = 1;
+    while h_idx < n_lines {
+        headers_out = list_push(headers_out, list_get(lines, h_idx));
+        h_idx = h_idx + 1;
+    }
+
+    return HttpResponse {
+        status_code: code_val,
+        status_text: code_text,
+        headers: headers_out,
+        body: body_section
+    };
+}

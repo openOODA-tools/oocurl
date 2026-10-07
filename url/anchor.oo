@@ -1,0 +1,16 @@
+// # URL Subsystem Anchor
+//
+// Logline: Public export barrel for URL parsing, normalization, and endpoint validation.
+//
+// Setup: Bridges URL string parsing and network endpoint records.
+//
+// Beats:
+//   1. Re-export ParsedUrl record and default initializer.
+//   2. Re-export parse_url helper.
+//   3. Expose subsystem anchor version.
+
+import "url_parse.oo";
+
+pub fn url_anchor_version() -> String {
+    return "0.1.0";
+}

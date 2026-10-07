@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: oocurl
+Upstream-Contact: openOODA-tools <ops@openooda.org>
+Source: https://github.com/openOODA-tools/oocurl
+
+Files: *
+Copyright: 2026 openOODA-tools contributors
+License: Apache-2.0

@@ -1,0 +1,10 @@
+Package: oocurl
+Version: 0.1.0-1
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Description: Capability-bounded HTTP and API client with syntax-highlighted responses
+ A capability-bounded HTTP and API client written in pure openOODA, featuring
+ status code classification, header inspection, syntax-highlighted response
+ payloads via oote palettes, safe file writes, and an MCP stdio surface.

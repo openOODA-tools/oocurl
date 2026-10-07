@@ -1,0 +1,125 @@
+// # Theme and Terminal Renderer - Color Palettes and Entity Styling
+//
+// Logline: Hydrates terminal palette from ~/.openooda/theme.oot for HTTP response visualization.
+//
+// Setup: Requires FsReadCap and EnvCap. Operates with zero ambient authority.
+//
+// Beats:
+//   1. Resolve theme name from OODA_THEME or ~/.openooda/theme.oot with fallback.
+//   2. Color-code HTTP status lines based on standard response class (2xx, 3xx, 4xx, 5xx).
+//   3. Style HTTP headers with highlighted key-value pairs.
+//   4. Format and render complete response blocks.
+
+import "std/fs/process/env.oo";
+import "http/http_response.oo";
+
+pub fn ansi_esc() -> String {
+    return bytes_to_str(bytes_push(bytes_new(), 27));
+}
+
+pub fn term_reset() -> String {
+    return ansi_esc() + "[0m";
+}
+
+pub fn parse_theme_val(line: String, key: String) -> String {
+    let trimmed: String = str_trim(line);
+    if !str_starts_with(trimmed, key) { return ""; }
+    let rest: String = str_trim(str_slice(trimmed, chars_len(key), chars_len(trimmed)));
+    if !str_starts_with(rest, "=") { return ""; }
+    let mut val: String = str_trim(str_slice(rest, 1, chars_len(rest)));
+    if str_starts_with(val, "\"") && str_ends_with(val, "\"") {
+        let n: Int = chars_len(val);
+        if n >= 2 { val = str_slice(val, 1, n - 1); }
+    }
+    return val;
+}
+
+pub fn parse_theme_key(content: String, key: String) -> String {
+    let n: Int = chars_len(content);
+    let mut cur: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(content, i);
+        if c == "\n" {
+            let v: String = parse_theme_val(cur, key);
+            if v != "" { return v; }
+            cur = "";
+        } else if c != "\r" {
+            cur = cur + c;
+        }
+        i = i + 1;
+    }
+    if cur != "" {
+        let v: String = parse_theme_val(cur, key);
+        if v != "" { return v; }
+    }
+    return "";
+}
+
+pub fn resolve_curl_theme(fs: &FsReadCap, env: &EnvCap) -> String {
+    let env_t: Result[String, String] = env_get(env, "OODA_THEME");
+    if env_t.is_ok() {
+        let t: String = match env_t { Ok(s) => s, Err(_) => "" };
+        if t != "" { return t; }
+    }
+    let env_home: Result[String, String] = env_get(env, "OODA_HOME");
+    let mut home: String = match env_home { Ok(s) => s, Err(_) => "" };
+    if home == "" {
+        let env_w: Result[String, String] = env_get(env, "OODA_FS_WRITEDIR");
+        home = match env_w { Ok(s) => s, Err(_) => "" };
+    }
+    if home == "" {
+        let env_h: Result[String, String] = env_get(env, "HOME");
+        home = match env_h { Ok(s) => s, Err(_) => "" };
+    }
+    let p: String = if str_ends_with(home, "/") { home + ".openooda/theme.oot" } else { home + "/.openooda/theme.oot" };
+    let r: Result[String, String] = read_file(fs, p);
+    if r.is_err() { return "classic/1982"; }
+    let content: String = match r { Ok(s) => s, Err(_) => "" };
+    let t: String = parse_theme_key(content, "theme");
+    return if t != "" { t } else { "classic/1982" };
+}
+
+pub fn style_status_line(status_code: Int, status_text: String) -> String {
+    let esc: String = ansi_esc();
+    let reset: String = term_reset();
+    let mut color_code: String = "[1;37m";
+    if status_code >= 200 && status_code < 300 {
+        color_code = "[1;32m";
+    } else if status_code >= 300 && status_code < 400 {
+        color_code = "[1;36m";
+    } else if status_code >= 400 && status_code < 500 {
+        color_code = "[1;33m";
+    } else if status_code >= 500 {
+        color_code = "[1;31m";
+    }
+    return esc + color_code + "HTTP/1.1 " + to_string(status_code) + " " + status_text + reset;
+}
+
+pub fn style_header_line(line: String) -> String {
+    let esc: String = ansi_esc();
+    let reset: String = term_reset();
+    let colon: Int = str_index_of(line, ":");
+    if colon < 0 {
+        return esc + "[90m" + line + reset;
+    }
+    let k: String = str_slice(line, 0, colon);
+    let v: String = str_slice(line, colon + 1, chars_len(line));
+    return esc + "[35m" + k + reset + esc + "[90m:" + reset + esc + "[37m" + v + reset;
+}
+
+pub fn render_http_response(resp: HttpResponse, include_headers: Bool) -> String {
+    if !include_headers {
+        return resp.body;
+    }
+    let mut out: String = style_status_line(resp.status_code, resp.status_text) + "\n";
+    let n_hdr: Int = list_len(resp.headers);
+    let mut i: Int = 0;
+    while i < n_hdr {
+        let h: String = list_get(resp.headers, i);
+        out = out + style_header_line(h) + "\n";
+        i = i + 1;
+    }
+    out = out + "\n" + resp.body;
+    return out;
+}

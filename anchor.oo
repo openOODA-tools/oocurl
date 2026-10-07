@@ -1,0 +1,20 @@
+// # oocurl System Anchor - Capability-Bounded HTTP Client
+//
+// Logline: Sovereign root export barrel for oocurl HTTP/API networking tools.
+//
+// Setup: Pure module re-exports. Zero ambient authority.
+//
+// Beats:
+//   1. Expose URL parsing and validation subsystem.
+//   2. Expose HTTP socket client and response subsystem.
+//   3. Expose render theme and terminal formatter subsystem.
+//   4. Expose IPC options parser and MCP stdio service.
+
+import "url/anchor.oo";
+import "http/anchor.oo";
+import "render/anchor.oo";
+import "ipc/anchor.oo";
+
+pub fn oocurl_version() -> String {
+    return "0.1.0";
+}

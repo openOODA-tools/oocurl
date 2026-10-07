@@ -1,0 +1,71 @@
+// # HTTP Network Client Engine
+//
+// Logline: Dispatches HTTP/1.1 wire requests over TCP socket connections under explicit TcpCap.
+//
+// Setup: Requires &TcpCap. Zero ambient network access.
+//
+// Beats:
+//   1. Build standard HTTP/1.1 request bytes with Host, User-Agent, and Content-Length.
+//   2. Open TCP stream connection to target host and port under TcpCap.
+//   3. Transmit wire request bytes and read response stream chunks until completion.
+//   4. Close TCP socket and return parsed HttpResponse model.
+
+import "std/net/http_cap.oo";
+import "std/net/tcp_conn.oo";
+import "url/url_parse.oo";
+import "http_response.oo";
+
+pub fn execute_http_request(
+    tcp: &TcpCap,
+    endpoint: ParsedUrl,
+    method: String,
+    headers: List[String],
+    body: String
+) -> Result[HttpResponse, String] {
+    if !endpoint.is_valid {
+        return Err("INVALID_URL");
+    }
+
+    let wire_req: String = http_cap_build_request(
+        endpoint.host,
+        endpoint.port,
+        method,
+        endpoint.path,
+        headers,
+        body
+    );
+
+    let conn_res: Result[TcpConnection, String] = tcp_conn_open(tcp, endpoint.host, endpoint.port);
+    if conn_res.is_err() {
+        return Err("CONNECTION_FAILED: " + endpoint.host + ":" + to_string(endpoint.port));
+    }
+    let conn: TcpConnection = match conn_res {
+        Ok(c) => c,
+        Err(_) => return Err("CONNECTION_FAILED")
+    };
+
+    let write_res: Result[TcpConnection, String] = tcp_conn_write(tcp, conn, wire_req);
+    if write_res.is_err() {
+        let _close: Result[TcpConnection, String] = tcp_conn_close(tcp, conn);
+        return Err("WRITE_FAILED");
+    }
+
+    let mut raw_response: String = "";
+    let mut reading: Bool = true;
+    while reading {
+        let read_res: Result[String, String] = tcp_conn_read(tcp, conn, 4096);
+        if read_res.is_err() {
+            reading = false;
+        } else {
+            let chunk: String = match read_res { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                reading = false;
+            } else {
+                raw_response = raw_response + chunk;
+            }
+        }
+    }
+
+    let _close_final: Result[TcpConnection, String] = tcp_conn_close(tcp, conn);
+    return Ok(parse_http_response(raw_response));
+}
