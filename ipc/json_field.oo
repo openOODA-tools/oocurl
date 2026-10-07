@@ -25,7 +25,7 @@ fn skip_string(json: String, i: Int) -> Int {
     return n;
 }
 
-fn scan_balanced(json: String, start: Int) -> Int {
+pub fn scan_balanced(json: String, start: Int) -> Int {
     let n: Int = chars_len(json);
     let mut depth: Int = 0;
     let mut i: Int = start;
