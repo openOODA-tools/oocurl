@@ -1,3 +1,9 @@
+oocurl (0.2.0-1) unstable; urgency=medium
+
+  * Sovereign release v0.2.0: production streaming MCP stdio server, 4 tools, CLI -I/--head support.
+
+ -- openOODA-tools <ops@openooda.org>  Wed, 07 Oct 2026 12:00:00 +0000
+
 oocurl (0.1.0-1) unstable; urgency=medium
 
   * Initial sovereign release: capability-bounded HTTP client, syntax-highlighted responses, and MCP stdio surface.

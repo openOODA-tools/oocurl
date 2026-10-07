@@ -7,13 +7,11 @@
 // Beats:
 //   1. Re-export CurlOpts parser and defaults.
 //   2. Re-export JSON field extraction helpers.
-//   3. Re-export MCP stdio server.
-//   4. Expose subsystem anchor metadata.
+//   3. Re-export tool dispatcher and MCP stdio server.
+//   4. Expose subsystem anchor interface.
 
 import "curl_opts.oo";
 import "json_field.oo";
+import "tool_dispatch.oo";
 import "mcp_serve.oo";
 
-pub fn ipc_anchor_version() -> String {
-    return "0.1.0";
-}

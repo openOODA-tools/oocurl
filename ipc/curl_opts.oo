@@ -15,6 +15,8 @@ pub type CurlOpts = struct {
     headers: List[String],
     data: String,
     include_headers: Bool,
+    head_only: Bool,
+    no_color: Bool,
     silent: Bool,
     output_file: String,
     mcp_mode: Bool,
@@ -30,6 +32,8 @@ pub fn curl_opts_default() -> CurlOpts {
         headers: list_new(),
         data: "",
         include_headers: false,
+        head_only: false,
+        no_color: false,
         silent: false,
         output_file: "",
         mcp_mode: false,
@@ -71,6 +75,12 @@ pub fn parse_curl_args(args: List[String]) -> CurlOpts {
             opts.mcp_mode = true;
         } else if arg == "-i" || arg == "--include" {
             opts.include_headers = true;
+        } else if arg == "-I" || arg == "--head" {
+            opts.head_only = true;
+            opts.include_headers = true;
+            if opts.method == "GET" { opts.method = "HEAD"; }
+        } else if arg == "--no-color" {
+            opts.no_color = true;
         } else if arg == "-s" || arg == "--silent" {
             opts.silent = true;
         } else if arg == "-X" || arg == "--request" {

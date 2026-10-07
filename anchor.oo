@@ -15,6 +15,3 @@ import "http/anchor.oo";
 import "render/anchor.oo";
 import "ipc/anchor.oo";
 
-pub fn oocurl_version() -> String {
-    return "0.1.0";
-}

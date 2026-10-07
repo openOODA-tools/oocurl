@@ -24,7 +24,7 @@ curl -fsSL https://openooda-tools.github.io/oocurl/install.sh | bash
 curl -fsSL https://openooda-tools.github.io/oocurl/install.sh | bash -s -- --apt
 
 # Or manual package install
-sudo dpkg -i oocurl_0.1.0-1_amd64.deb
+sudo dpkg -i oocurl_0.2.0-1_amd64.deb
 ```
 
 ### Fedora / RHEL / CentOS (DNF)
@@ -33,7 +33,7 @@ sudo dpkg -i oocurl_0.1.0-1_amd64.deb
 curl -fsSL https://openooda-tools.github.io/oocurl/install.sh | bash -s -- --dnf
 
 # Or manual RPM install
-sudo dnf install ./oocurl-0.1.0-1.fc44.x86_64.rpm
+sudo dnf install ./oocurl-0.2.0-1.fc44.x86_64.rpm
 ```
 
 ### Arch Linux (PKGBUILD)
@@ -70,6 +70,9 @@ Perform capability-bounded HTTP requests:
 # Standard GET request
 oocurl http://127.0.0.1:8080/api/status
 
+# Document info (headers) only
+oocurl -I http://127.0.0.1:8080/api/status
+
 # Include HTTP response status and headers
 oocurl -i http://127.0.0.1:8080/health
 
@@ -88,8 +91,10 @@ oocurl --mcp
 ```
 
 #### Exposed MCP Tools:
-- `http_request`: Executes HTTP transactions under explicit `TcpCap` authorization and returns structured responses.
-- `parse_url`: Parses and validates target endpoints into scheme, host, port, and path components.
+- `parse_url`: Parse URL, extract scheme, userinfo, host, port, path, query, fragment, and validate.
+- `http_request`: Execute HTTP request under explicit `&TcpCap` with method (GET, POST, PUT, DELETE, HEAD), headers, body, and timeout.
+- `http_head`: Lightweight headers-only inspection tool.
+- `encode_url_query`: Construct RFC 3986 percent-encoded query strings from key-value pairs.
 
 ---
 

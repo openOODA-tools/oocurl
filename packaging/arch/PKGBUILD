@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oocurl-bin
 _pkgname=oocurl
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Capability-bounded HTTP and API client with syntax-highlighted responses and MCP surface"
 arch=('x86_64')

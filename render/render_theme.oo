@@ -108,18 +108,26 @@ pub fn style_header_line(line: String) -> String {
     return esc + "[35m" + k + reset + esc + "[90m:" + reset + esc + "[37m" + v + reset;
 }
 
-pub fn render_http_response(resp: HttpResponse, include_headers: Bool) -> String {
-    if !include_headers {
-        return resp.body;
-    }
-    let mut out: String = style_status_line(resp.status_code, resp.status_text) + "\n";
+pub fn render_headers_only(resp: HttpResponse, no_color: Bool) -> String {
+    let mut out: String = if no_color {
+        "HTTP/1.1 " + to_string(resp.status_code) + " " + resp.status_text + "\n"
+    } else {
+        style_status_line(resp.status_code, resp.status_text) + "\n"
+    };
     let n_hdr: Int = list_len(resp.headers);
     let mut i: Int = 0;
     while i < n_hdr {
         let h: String = list_get(resp.headers, i);
-        out = out + style_header_line(h) + "\n";
+        out = out + (if no_color { h } else { style_header_line(h) }) + "\n";
         i = i + 1;
     }
-    out = out + "\n" + resp.body;
     return out;
+}
+
+pub fn render_http_response(resp: HttpResponse, include_headers: Bool, no_color: Bool) -> String {
+    if !include_headers {
+        return resp.body;
+    }
+    let hdrs: String = render_headers_only(resp, no_color);
+    return hdrs + "\n" + resp.body;
 }

@@ -22,9 +22,11 @@ fn render_help() -> String {
         "  -X, --request <METHOD> HTTP method (GET, POST, PUT, DELETE, HEAD, PATCH)\n" +
         "  -H, --header <HEADER>  Add custom request header (can be used multiple times)\n" +
         "  -d, --data <DATA>      HTTP request body data (defaults to POST)\n" +
+        "  -I, --head             Show document info (headers) only\n" +
         "  -i, --include          Include HTTP response status and headers in output\n" +
         "  -s, --silent           Silent mode (suppress error diagnostics on stderr)\n" +
         "  -o, --output <FILE>    Write response body to file instead of stdout\n" +
+        "      --no-color         Disable ANSI color escapes\n" +
         "      --mcp              Start Model Context Protocol stdio server\n" +
         "  -h, --help             Display this help message and exit\n" +
         "  -v, --version          Print version information and exit\n";
@@ -44,7 +46,7 @@ pub fn main(
         return Ok(0);
     }
     if opts.version_mode {
-        println("oocurl 0.1.0 (openOODA sovereign HTTP client)");
+        println("oocurl 0.2.0 (openOODA sovereign HTTP client)");
         return Ok(0);
     }
     if opts.mcp_mode {
@@ -84,6 +86,12 @@ pub fn main(
         Err(_) => http_response_default()
     };
 
+    if opts.head_only {
+        let rendered: String = render_headers_only(resp, opts.no_color);
+        print(rendered);
+        return Ok(0);
+    }
+
     if opts.output_file != "" {
         let wr: Result[Void, String] = write_file(fs_write, opts.output_file, resp.body);
         if wr.is_err() {
@@ -93,7 +101,7 @@ pub fn main(
         return Ok(0);
     }
 
-    let rendered: String = render_http_response(resp, opts.include_headers);
+    let rendered: String = render_http_response(resp, opts.include_headers, opts.no_color);
     println(rendered);
     return Ok(0);
 }

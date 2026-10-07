@@ -7,10 +7,7 @@
 // Beats:
 //   1. Re-export resolve_curl_theme.
 //   2. Re-export render_http_response and status colorizers.
-//   3. Expose subsystem anchor metadata.
+//   3. Expose render subsystem interfaces.
 
 import "render_theme.oo";
 
-pub fn render_anchor_version() -> String {
-    return "0.1.0";
-}

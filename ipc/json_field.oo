@@ -7,7 +7,7 @@
 // Beats:
 //   1. Extract unquoted field values from simple and nested JSON payloads.
 //   2. Extract quoted string values without brace tracking distortion.
-//   3. Escape arbitrary characters into valid JSON string representations.
+//   3. Escape and unescape arbitrary characters into valid JSON string representations.
 
 fn skip_string(json: String, i: Int) -> Int {
     let n: Int = chars_len(json);
@@ -45,6 +45,45 @@ fn scan_balanced(json: String, start: Int) -> Int {
     return n;
 }
 
+pub fn skip_whitespace(json: String, start: Int) -> Int {
+    let n: Int = chars_len(json);
+    let mut j: Int = start;
+    while j < n {
+        let w: String = char_at(json, j);
+        if w == " " || w == "\t" || w == "\n" || w == "\r" {
+            j = j + 1;
+        } else {
+            return j;
+        }
+    }
+    return n;
+}
+
+pub fn scan_json_object_end(buf: String, start: Int) -> Int {
+    let n: Int = chars_len(buf);
+    let mut depth: Int = 0;
+    let mut i: Int = start;
+    let mut found_open: Bool = false;
+    while i < n {
+        let c: String = char_at(buf, i);
+        if c == "\"" {
+            i = skip_string(buf, i);
+        } else {
+            if c == "{" {
+                depth = depth + 1;
+                found_open = true;
+            } else if c == "}" {
+                depth = depth - 1;
+                if depth == 0 && found_open {
+                    return i + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    return -1;
+}
+
 fn find_value_start(json: String, key: String) -> Int {
     let n: Int = chars_len(json);
     let mut depth: Int = 0;
@@ -55,18 +94,29 @@ fn find_value_start(json: String, key: String) -> Int {
             let after: Int = skip_string(json, i);
             if depth == 1 {
                 let name: String = str_slice(json, i + 1, after - 1);
-                if name == key {
-                    let mut j: Int = after;
-                    while j < n {
-                        let w: String = char_at(json, j);
-                        if w == " " || w == "\t" || w == "\n" || w == "\r" { j = j + 1; } else { break; }
+                let colon_pos: Int = skip_whitespace(json, after);
+                if colon_pos < n && char_at(json, colon_pos) == ":" {
+                    let val_pos: Int = skip_whitespace(json, colon_pos + 1);
+                    if name == key {
+                        return val_pos;
                     }
-                    if j < n && char_at(json, j) == ":" { j = j + 1; }
-                    while j < n {
-                        let w2: String = char_at(json, j);
-                        if w2 == " " || w2 == "\t" || w2 == "\n" || w2 == "\r" { j = j + 1; } else { break; }
+                    if val_pos < n {
+                        let vc: String = char_at(json, val_pos);
+                        if vc == "\"" {
+                            i = skip_string(json, val_pos);
+                        } else if vc == "{" || vc == "[" {
+                            i = scan_balanced(json, val_pos);
+                        } else {
+                            let mut k: Int = val_pos;
+                            while k < n {
+                                let ch: String = char_at(json, k);
+                                if ch == "," || ch == "}" || ch == " " || ch == "\t" || ch == "\n" || ch == "\r" { break; }
+                                k = k + 1;
+                            }
+                            i = k;
+                        }
+                        continue;
                     }
-                    return j;
                 }
             }
             i = after;
@@ -81,12 +131,13 @@ fn find_value_start(json: String, key: String) -> Int {
 
 pub fn json_field_raw(json: String, key: String) -> String {
     let start: Int = find_value_start(json, key);
-    if start < 0 { return ""; }
     let n: Int = chars_len(json);
-    if char_at(json, start) == "\"" {
+    if start < 0 || start >= n { return ""; }
+    let sc: String = char_at(json, start);
+    if sc == "\"" {
         return str_slice(json, start, skip_string(json, start));
     }
-    if char_at(json, start) == "{" || char_at(json, start) == "[" {
+    if sc == "{" || sc == "[" {
         return str_slice(json, start, scan_balanced(json, start));
     }
     let mut j: Int = start;
@@ -100,7 +151,9 @@ pub fn json_field_raw(json: String, key: String) -> String {
 
 pub fn json_field_string(json: String, key: String) -> String {
     let start: Int = find_value_start(json, key);
-    if start < 0 { return ""; }
+    let n: Int = chars_len(json);
+    if start < 0 || start >= n { return ""; }
+    if char_at(json, start) != "\"" { return ""; }
     let end: Int = skip_string(json, start);
     return str_slice(json, start + 1, end - 1);
 }
@@ -128,6 +181,41 @@ pub fn json_escape(s: String) -> String {
             out = out + c;
         }
         i = i + 1;
+    }
+    return out;
+}
+
+pub fn json_unescape(s: String) -> String {
+    let n: Int = chars_len(s);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let c: String = char_at(s, i);
+        if c == "\\" && i + 1 < n {
+            let next_c: String = char_at(s, i + 1);
+            if next_c == "n" {
+                out = out + bytes_to_str(bytes_push(bytes_new(), 10));
+                i = i + 2;
+            } else if next_c == "r" {
+                out = out + bytes_to_str(bytes_push(bytes_new(), 13));
+                i = i + 2;
+            } else if next_c == "t" {
+                out = out + bytes_to_str(bytes_push(bytes_new(), 9));
+                i = i + 2;
+            } else if next_c == "\"" {
+                out = out + "\"";
+                i = i + 2;
+            } else if next_c == "\\" {
+                out = out + "\\";
+                i = i + 2;
+            } else {
+                out = out + next_c;
+                i = i + 2;
+            }
+        } else {
+            out = out + c;
+            i = i + 1;
+        }
     }
     return out;
 }

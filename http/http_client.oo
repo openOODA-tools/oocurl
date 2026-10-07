@@ -26,11 +26,17 @@ pub fn execute_http_request(
         return Err("INVALID_URL");
     }
 
+    let req_target: String = if chars_len(endpoint.query) > 0 {
+        endpoint.path + "?" + endpoint.query
+    } else {
+        endpoint.path
+    };
+
     let wire_req: String = http_cap_build_request(
         endpoint.host,
         endpoint.port,
         method,
-        endpoint.path,
+        req_target,
         headers,
         body
     );

@@ -1,29 +1,35 @@
 // # URL Parser and Endpoint Sanitizer
 //
-// Logline: Decodes HTTP/HTTPS URL strings into structured network endpoints.
+// Logline: Decodes HTTP/HTTPS URL strings into structured network endpoints and encodes queries.
 //
 // Setup: Pure string analyzer. Enforces scheme and port sanity checks.
 //
 // Beats:
-//   1. Define ParsedUrl record holding scheme, host, port, path, and validity flag.
-//   2. Strip and classify network protocol scheme (http vs https).
-//   3. Extract hostname, custom port overrides, and request path.
+//   1. Define ParsedUrl record holding scheme, userinfo, host, port, path, query, and fragment.
+//   2. Extract scheme, authority credentials, hostname, port overrides, path, query, and fragment.
+//   3. Provide RFC 3986 percent-encoding and query string constructor.
 //   4. Construct validated ParsedUrl model.
 
 pub type ParsedUrl = struct {
     scheme: String,
+    userinfo: String,
     host: String,
     port: Int,
     path: String,
+    query: String,
+    fragment: String,
     is_valid: Bool
 };
 
 pub fn parsed_url_default() -> ParsedUrl {
     return ParsedUrl {
         scheme: "http",
+        userinfo: "",
         host: "",
         port: 80,
         path: "/",
+        query: "",
+        fragment: "",
         is_valid: false
     };
 }
@@ -31,6 +37,7 @@ pub fn parsed_url_default() -> ParsedUrl {
 pub fn parse_port_number(s: String) -> Int {
     let trimmed: String = str_trim(s);
     let n: Int = chars_len(trimmed);
+    if n == 0 { return -1; }
     let mut val: Int = 0;
     let mut i: Int = 0;
     while i < n {
@@ -38,11 +45,74 @@ pub fn parse_port_number(s: String) -> Int {
         if b >= 48 && b <= 57 {
             val = (val * 10) + (b - 48);
         } else {
-            return val;
+            return -1;
         }
         i = i + 1;
     }
     return val;
+}
+
+pub fn str_to_lower(s: String) -> String {
+    let n: Int = chars_len(s);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let b: Int = byte_at(s, i);
+        if b >= 65 && b <= 90 {
+            out = out + bytes_to_str(bytes_push(bytes_new(), b + 32));
+        } else {
+            out = out + char_at(s, i);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn is_rfc3986_unreserved(b: Int) -> Bool {
+    if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) {
+        return true;
+    }
+    if b == 45 || b == 46 || b == 95 || b == 126 {
+        return true;
+    }
+    return false;
+}
+
+pub fn rfc3986_percent_encode(s: String) -> String {
+    let digits: String = "0123456789ABCDEF";
+    let n: Int = chars_len(s);
+    let mut out: String = "";
+    let mut i: Int = 0;
+    while i < n {
+        let b: Int = byte_at(s, i);
+        if is_rfc3986_unreserved(b) {
+            out = out + char_at(s, i);
+        } else {
+            let hi: Int = (b / 16) % 16;
+            let lo: Int = b % 16;
+            out = out + "%" + char_at(digits, hi) + char_at(digits, lo);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn encode_url_query_from_pairs(pairs: List[String]) -> String {
+    let mut q_str: String = "";
+    let n: Int = list_len(pairs);
+    let mut i: Int = 0;
+    while i < n {
+        let p: String = list_get(pairs, i);
+        let tab: Int = str_index_of(p, "\t");
+        let k: String = if tab >= 0 { str_slice(p, 0, tab) } else { p };
+        let v: String = if tab >= 0 { str_slice(p, tab + 1, chars_len(p)) } else { "" };
+        let enc_k: String = rfc3986_percent_encode(k);
+        let enc_v: String = rfc3986_percent_encode(v);
+        if chars_len(q_str) > 0 { q_str = q_str + "&"; }
+        q_str = q_str + enc_k + "=" + enc_v;
+        i = i + 1;
+    }
+    return q_str;
 }
 
 pub fn parse_url(raw_url: String) -> ParsedUrl {
@@ -51,17 +121,32 @@ pub fn parse_url(raw_url: String) -> ParsedUrl {
         return parsed_url_default();
     }
 
-    let mut scheme: String = "http";
-    let mut rest: String = "";
+    let mut working: String = trimmed;
+    let mut fragment: String = "";
+    let hash_pos: Int = str_index_of(working, "#");
+    if hash_pos >= 0 {
+        fragment = str_slice(working, hash_pos + 1, chars_len(working));
+        working = str_slice(working, 0, hash_pos);
+    }
 
-    if str_starts_with(trimmed, "http://") {
+    let mut query: String = "";
+    let q_pos: Int = str_index_of(working, "?");
+    if q_pos >= 0 {
+        query = str_slice(working, q_pos + 1, chars_len(working));
+        working = str_slice(working, 0, q_pos);
+    }
+
+    let mut scheme: String = "http";
+    let scheme_sep: Int = str_index_of(working, "://");
+    let mut rest: String = "";
+    if scheme_sep > 0 {
+        scheme = str_to_lower(str_slice(working, 0, scheme_sep));
+        rest = str_slice(working, scheme_sep + 3, chars_len(working));
+    } else if str_starts_with(working, "//") {
         scheme = "http";
-        rest = str_slice(trimmed, 7, chars_len(trimmed));
-    } else if str_starts_with(trimmed, "https://") {
-        scheme = "https";
-        rest = str_slice(trimmed, 8, chars_len(trimmed));
+        rest = str_slice(working, 2, chars_len(working));
     } else {
-        rest = trimmed;
+        rest = working;
     }
 
     let slash_pos: Int = str_index_of(rest, "/");
@@ -73,32 +158,60 @@ pub fn parse_url(raw_url: String) -> ParsedUrl {
         path = str_slice(rest, slash_pos, chars_len(rest));
     } else {
         authority = rest;
+        path = "/";
+    }
+
+    let mut userinfo: String = "";
+    let mut host_port: String = "";
+    let at_pos: Int = str_index_of(authority, "@");
+    if at_pos >= 0 {
+        userinfo = str_slice(authority, 0, at_pos);
+        host_port = str_slice(authority, at_pos + 1, chars_len(authority));
+    } else {
+        host_port = authority;
     }
 
     let mut host: String = "";
     let mut port: Int = if scheme == "https" { 443 } else { 80 };
 
-    let colon_pos: Int = str_index_of(authority, ":");
-    if colon_pos >= 0 {
-        host = str_slice(authority, 0, colon_pos);
-        let port_str: String = str_slice(authority, colon_pos + 1, chars_len(authority));
-        let p_num: Int = parse_port_number(port_str);
-        if p_num > 0 {
-            port = p_num;
+    if str_starts_with(host_port, "[") {
+        let close_b: Int = str_index_of(host_port, "]");
+        if close_b > 0 {
+            host = str_slice(host_port, 1, close_b);
+            let rem: String = str_slice(host_port, close_b + 1, chars_len(host_port));
+            if str_starts_with(rem, ":") {
+                let p_num: Int = parse_port_number(str_slice(rem, 1, chars_len(rem)));
+                port = p_num;
+            }
+        } else {
+            host = host_port;
         }
     } else {
-        host = authority;
+        let colon_pos: Int = str_index_of(host_port, ":");
+        if colon_pos >= 0 {
+            host = str_slice(host_port, 0, colon_pos);
+            let port_str: String = str_slice(host_port, colon_pos + 1, chars_len(host_port));
+            let p_num: Int = parse_port_number(port_str);
+            port = p_num;
+        } else {
+            host = host_port;
+        }
     }
 
-    if chars_len(host) == 0 {
-        return parsed_url_default();
-    }
+    let mut valid: Bool = true;
+    if chars_len(host) == 0 { valid = false; }
+    if str_index_of(host, " ") >= 0 { valid = false; }
+    if port <= 0 || port > 65535 { valid = false; }
+    if chars_len(scheme) == 0 { valid = false; }
 
     return ParsedUrl {
         scheme: scheme,
+        userinfo: userinfo,
         host: host,
         port: port,
         path: path,
-        is_valid: true
+        query: query,
+        fragment: fragment,
+        is_valid: valid
     };
 }

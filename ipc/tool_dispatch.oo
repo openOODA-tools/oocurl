@@ -1,0 +1,243 @@
+// # MCP Tool Dispatcher - HTTP Networking and URL Inspection
+//
+// Logline: Dispatches Model Context Protocol tool requests for HTTP client and URL operations.
+//
+// Setup: Bound to explicit &TcpCap. Zero ambient authority.
+//
+// Beats:
+//   1. Construct JSON-RPC error and tool execution envelopes.
+//   2. Define JSON Schema catalogue for parse_url, http_request, http_head, and encode_url_query.
+//   3. Dispatch tools/call invocations and handle argument validation.
+
+import "url/url_parse.oo";
+import "http/http_response.oo";
+import "http/http_client.oo";
+import "ipc/json_field.oo";
+import "ipc/curl_opts.oo";
+
+pub fn build_error(id: String, code: Int, msg: String) -> String {
+    let safe_id: String = if chars_len(id) == 0 { "null" } else { id };
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + safe_id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}";
+}
+
+pub fn build_tool_result(id: String, text: String) -> String {
+    let safe_id: String = if chars_len(id) == 0 { "null" } else { id };
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + safe_id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}";
+}
+
+pub fn tools_list_payload(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":["
+        + "{\"name\":\"parse_url\",\"description\":\"Parse URL into components\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}},"
+        + "{\"name\":\"http_request\",\"description\":\"Execute HTTP request\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"method\":{\"type\":\"string\"},\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"body\":{\"type\":\"string\"},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"url\"]}},"
+        + "{\"name\":\"http_head\",\"description\":\"HTTP HEAD inspection\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"timeout\":{\"type\":\"integer\"}},\"required\":[\"url\"]}},"
+        + "{\"name\":\"encode_url_query\",\"description\":\"Encode URL query string\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\"},\"pairs\":{\"type\":\"array\"}}}}"
+        + "]}}";
+}
+
+pub fn parse_string_array(json: String) -> List[String] {
+    let mut res: List[String] = list_new();
+    let n: Int = chars_len(json);
+    let mut i: Int = 0;
+    while i < n && char_at(json, i) != "[" { i = i + 1; }
+    i = i + 1;
+    while i < n {
+        i = skip_whitespace(json, i);
+        if i >= n || char_at(json, i) == "]" { break; }
+        if char_at(json, i) == "\"" {
+            let mut j: Int = i + 1;
+            while j < n && char_at(json, j) != "\"" {
+                if char_at(json, j) == "\\" { j = j + 1; }
+                j = j + 1;
+            }
+            res = list_push(res, json_unescape(str_slice(json, i + 1, j)));
+            i = if j < n { j + 1 } else { n };
+        } else { i = i + 1; }
+    }
+    return res;
+}
+
+pub fn parse_object_pairs(json: String) -> List[String] {
+    let mut pairs: List[String] = list_new();
+    let n: Int = chars_len(json);
+    let mut i: Int = 0;
+    while i < n && char_at(json, i) != "{" { i = i + 1; }
+    i = i + 1;
+    while i < n {
+        i = skip_whitespace(json, i);
+        if i >= n || char_at(json, i) == "}" { break; }
+        if char_at(json, i) == "\"" {
+            let mut j: Int = i + 1;
+            while j < n {
+                if char_at(json, j) == "\\" { j = j + 2; }
+                else if char_at(json, j) == "\"" { break; }
+                else { j = j + 1; }
+            }
+            let key: String = json_unescape(str_slice(json, i + 1, j));
+            let colon_pos: Int = skip_whitespace(json, j + 1);
+            if colon_pos < n && char_at(json, colon_pos) == ":" {
+                let vpos: Int = skip_whitespace(json, colon_pos + 1);
+                if vpos < n {
+                    let vc: String = char_at(json, vpos);
+                    let mut val: String = "";
+                    if vc == "\"" {
+                        let mut vj: Int = vpos + 1;
+                        while vj < n {
+                            if char_at(json, vj) == "\\" { vj = vj + 2; }
+                            else if char_at(json, vj) == "\"" { break; }
+                            else { vj = vj + 1; }
+                        }
+                        val = json_unescape(str_slice(json, vpos + 1, vj));
+                        i = vj + 1;
+                    } else {
+                        let mut vk: Int = vpos;
+                        while vk < n {
+                            let ch: String = char_at(json, vk);
+                            if ch == "," || ch == "}" || ch == " " || ch == "\t" || ch == "\n" || ch == "\r" { break; }
+                            vk = vk + 1;
+                        }
+                        val = str_slice(json, vpos, vk);
+                        i = vk;
+                    }
+                    pairs = list_push(pairs, key + "\t" + val);
+                } else { i = colon_pos + 1; }
+            } else { i = j + 1; }
+        } else { i = i + 1; }
+    }
+    return pairs;
+}
+
+pub fn parse_pairs_array(json: String) -> List[String] {
+    let mut pairs: List[String] = list_new();
+    let n: Int = chars_len(json);
+    let mut i: Int = 0;
+    while i < n && char_at(json, i) != "[" { i = i + 1; }
+    i = i + 1;
+    while i < n {
+        i = skip_whitespace(json, i);
+        if i >= n || char_at(json, i) == "]" { break; }
+        if char_at(json, i) == "{" {
+            let obj_end: Int = scan_json_object_end(json, i);
+            if obj_end > i {
+                let obj_str: String = str_slice(json, i, obj_end);
+                let k: String = json_field_string(obj_str, "key");
+                let mut v: String = json_field_string(obj_str, "value");
+                if chars_len(v) == 0 { v = json_field_raw(obj_str, "value"); }
+                if chars_len(k) > 0 { pairs = list_push(pairs, k + "\t" + v); }
+                i = obj_end;
+            } else { i = i + 1; }
+        } else { i = i + 1; }
+    }
+    return pairs;
+}
+
+fn render_headers_json(headers: List[String]) -> String {
+    let mut out: String = "[";
+    let n: Int = list_len(headers);
+    let mut i: Int = 0;
+    while i < n {
+        out = out + "\"" + json_escape(list_get(headers, i)) + "\"";
+        if i + 1 < n { out = out + ","; }
+        i = i + 1;
+    }
+    return out + "]";
+}
+
+pub fn handle_tool_call(tcp: &TcpCap, id: String, req: String) -> String {
+    let params: String = json_field_raw(req, "params");
+    let tool_name: String = json_field_string(params, "name");
+    let args: String = json_field_raw(params, "arguments");
+
+    if chars_len(tool_name) == 0 {
+        return build_error(id, -32602, "missing required parameter: name");
+    }
+
+    if tool_name == "parse_url" {
+        if chars_len(json_field_raw(args, "url")) == 0 {
+            return build_error(id, -32602, "missing required argument: url");
+        }
+        let p: ParsedUrl = parse_url(json_field_string(args, "url"));
+        let out: String = "{\"scheme\":\"" + p.scheme + "\",\"userinfo\":\"" + p.userinfo + "\",\"host\":\"" + p.host + "\",\"port\":" + to_string(p.port) + ",\"path\":\"" + p.path + "\",\"query\":\"" + p.query + "\",\"fragment\":\"" + p.fragment + "\",\"is_valid\":" + (if p.is_valid { "true" } else { "false" }) + "}";
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "http_request" {
+        if chars_len(json_field_raw(args, "url")) == 0 {
+            return build_error(id, -32602, "missing required argument: url");
+        }
+        let parsed: ParsedUrl = parse_url(json_field_string(args, "url"));
+        if !parsed.is_valid {
+            return build_error(id, -32602, "invalid url");
+        }
+        let raw_m: String = json_field_string(args, "method");
+        let method: String = if chars_len(raw_m) == 0 { "GET" } else { str_to_upper(raw_m) };
+        if method != "GET" && method != "POST" && method != "PUT" && method != "DELETE" && method != "HEAD" {
+            return build_error(id, -32602, "invalid method: " + method);
+        }
+        let raw_t: String = json_field_raw(args, "timeout");
+        if chars_len(raw_t) > 0 && str_starts_with(str_trim(raw_t), "-") {
+            return build_error(id, -32602, "invalid timeout: must be non-negative");
+        }
+        let raw_hdrs: String = json_field_raw(args, "headers");
+        let hdrs: List[String] = if chars_len(raw_hdrs) > 0 { parse_string_array(raw_hdrs) } else { list_new() };
+        let body: String = json_field_string(args, "body");
+        let res: Result[HttpResponse, String] = execute_http_request(tcp, parsed, method, hdrs, body);
+        if res.is_err() {
+            let err_msg: String = match res { Ok(_) => "", Err(e) => e };
+            return build_error(id, -32000, "http request failed: " + err_msg);
+        }
+        let resp: HttpResponse = match res { Ok(r) => r, Err(_) => http_response_default() };
+        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + resp.status_text + "\",\"headers\":" + render_headers_json(resp.headers) + ",\"body\":\"" + json_escape(resp.body) + "\"}";
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "http_head" {
+        if chars_len(json_field_raw(args, "url")) == 0 {
+            return build_error(id, -32602, "missing required argument: url");
+        }
+        let parsed: ParsedUrl = parse_url(json_field_string(args, "url"));
+        if !parsed.is_valid {
+            return build_error(id, -32602, "invalid url");
+        }
+        let raw_t: String = json_field_raw(args, "timeout");
+        if chars_len(raw_t) > 0 && str_starts_with(str_trim(raw_t), "-") {
+            return build_error(id, -32602, "invalid timeout: must be non-negative");
+        }
+        let raw_hdrs: String = json_field_raw(args, "headers");
+        let hdrs: List[String] = if chars_len(raw_hdrs) > 0 { parse_string_array(raw_hdrs) } else { list_new() };
+        let res: Result[HttpResponse, String] = execute_http_request(tcp, parsed, "HEAD", hdrs, "");
+        if res.is_err() {
+            let err_msg: String = match res { Ok(_) => "", Err(e) => e };
+            return build_error(id, -32000, "http head failed: " + err_msg);
+        }
+        let resp: HttpResponse = match res { Ok(r) => r, Err(_) => http_response_default() };
+        let out: String = "{\"status\":" + to_string(resp.status_code) + ",\"status_text\":\"" + resp.status_text + "\",\"headers\":" + render_headers_json(resp.headers) + "}";
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "encode_url_query" {
+        let raw_params: String = json_field_raw(args, "params");
+        let raw_pairs: String = json_field_raw(args, "pairs");
+        let mut pairs: List[String] = list_new();
+        if chars_len(raw_pairs) > 0 && str_starts_with(str_trim(raw_pairs), "[") {
+            pairs = parse_pairs_array(raw_pairs);
+        } else if chars_len(raw_params) > 0 && str_starts_with(str_trim(raw_params), "{") {
+            pairs = parse_object_pairs(raw_params);
+        } else if chars_len(raw_params) > 0 && str_trim(raw_params) == "{}" {
+            // empty params
+        } else if chars_len(args) > 0 && str_starts_with(str_trim(args), "{") && chars_len(raw_params) == 0 && chars_len(raw_pairs) == 0 {
+            let test_pairs: List[String] = parse_object_pairs(args);
+            if list_len(test_pairs) > 0 {
+                pairs = test_pairs;
+            } else {
+                return build_error(id, -32602, "missing required parameter: params or pairs");
+            }
+        } else {
+            return build_error(id, -32602, "missing required parameter: params or pairs");
+        }
+        let q_str: String = encode_url_query_from_pairs(pairs);
+        let out: String = "{\"query\":\"" + json_escape(q_str) + "\",\"query_string\":\"" + json_escape(q_str) + "\",\"encoded\":\"" + json_escape(q_str) + "\"}";
+        return build_tool_result(id, out);
+    }
+
+    return build_error(id, -32601, "unknown tool: " + tool_name);
+}
